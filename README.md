@@ -65,7 +65,7 @@ python -m venv venv
 ```
 Expose it publicly with a free quick tunnel:
 ```powershell
-cloudflared tunnel --url http://127.0.0.1:8088
+cloudflared tunnel --url http://your cloudflare ip 
 ```
 The upload page offers two options:
 
