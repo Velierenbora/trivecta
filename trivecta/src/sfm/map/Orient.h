@@ -1,0 +1,167 @@
+// The gauge a finished model is written in.
+//
+// A monocular reconstruction has no absolute orientation, position or scale --
+// the mapper's answer is whatever the seed pair happened to be, so a capture
+// of a level room comes out tilted at a random angle, centred on nothing in
+// particular, and sized in units of "however far apart those first two frames
+// were". Everything downstream then has to carry that: the trainer computes a
+// normalizing similarity to place its viewer camera, the web viewer applies it
+// again, and an exported splat.ply or mesh -- which carries no cameras and so
+// no way to recover the transform -- is simply tilted forever.
+//
+// Fixing the gauge here, once, at the point where the model is written, gives
+// every consumer an upright, centred, unit-sized scene for free.
+//
+// The transform is the SAME one the trainer computes from the poses it loads
+// (dsparse::compute_normalized_transform, orientation_method="up" /
+// center_method="poses" / auto_scale_poses):
+//
+//     up     = normalize(mean camera up axis)
+//     R      = the rotation taking `up` to +Z
+//     centre = mean camera position
+//     scale  = 1 / max component of R (position - centre) over all cameras
+//
+// Two consequences worth knowing. The trainer's own normalization becomes a
+// near-identity, so `train_frame_scale` comes out ~1 and the learning-rate and
+// regularizer rescaling that hangs off it no longer has anything to undo --
+// the training frame IS the normalized frame. And a fragmented capture
+// normalizes each component separately, which is correct because separate
+// components share no gauge to begin with; a later `merge` estimates the Sim3
+// between them regardless.
+//
+// "Up" is a statistical claim about how the capture was held, not a
+// measurement -- a camera carried upside-down through half a capture gives a
+// mean up axis pointing at neither. It is the same claim the trainer has
+// always made, and `--no-orient` is how to decline it.
+#pragma once
+
+#include <cmath>
+#include <string>
+#include <vector>
+
+#include "sfm/core/Exif.h"
+#include "sfm/core/Model.h"
+#include "sfm/core/Pose.h"
+
+namespace sfm {
+
+// The cameras' mean up axis in world coordinates, unnormalized: up is minus the
+// second ROW of R (world -> camera, x right, y DOWN, z forward). `use_exif`
+// takes each image's up from its Orientation tag -- a portrait file's is 90 off.
+inline Vec3 meanCameraUp(const Reconstruction& rec, bool use_exif = false) {
+    Vec3 up{0, 0, 0};
+    for (const auto& kv : rec.images) {
+        const Image& im = kv.second;
+        if (!im.registered) continue;
+        double u[3] = {0, -1, 0};
+        if (use_exif) exifUpInCamera(im.exif_orientation, u);
+        // R^T u: the camera-frame up written in world coordinates.
+        for (int c = 0; c < 3; c++)
+            up = up + Vec3{im.pose.R[3 * c] * u[c], im.pose.R[3 * c + 1] * u[c],
+                           im.pose.R[3 * c + 2] * u[c]};
+    }
+    return up;
+}
+
+// Rodrigues rotation taking the unit vector `up` onto +Z, about up x z.
+inline Mat3 rotationUpToZ(const Vec3& up) {
+    Vec3 axis{up.y, -up.x, 0.0};
+    const double s = std::sqrt(axis.x * axis.x + axis.y * axis.y);
+    const double c = up.z;
+    Mat3 R = mat3Identity();
+    if (s > 1e-12) {
+        axis = axis * (1.0 / s);
+        const double C = 1.0 - c;
+        R = Mat3{c + axis.x * axis.x * C,       axis.x * axis.y * C - axis.z * s, axis.y * s,
+                 axis.x * axis.y * C + axis.z * s, c + axis.y * axis.y * C,      -axis.x * s,
+                 -axis.y * s,                   axis.x * s,                       c};
+    } else if (c < 0.0) {
+        R = Mat3{1, 0, 0, 0, -1, 0, 0, 0, -1};   // up == -z: flip
+    }
+    return R;
+}
+
+// The similarity turning `rec` by `R`, centred on the cameras and unit-sized.
+// Identity with under two registered images.
+inline Sim3 normalizingTransform(const Reconstruction& rec, const Mat3& R) {
+    Sim3 T;
+    std::vector<Vec3> centers;
+    Vec3 mid{0, 0, 0};
+    for (const auto& kv : rec.images) {
+        const Image& im = kv.second;
+        if (!im.registered) continue;
+        Vec3 c = mul(transpose(im.pose.R), im.pose.t) * -1.0;
+        centers.push_back(c);
+        mid = mid + c;
+    }
+    if (centers.size() < 2) return T;
+    mid = mid * (1.0 / (double)centers.size());
+
+    // Scale so the furthest camera coordinate lands on 1. Per component, not
+    // by norm: that is what the trainer does, and the point of doing this here
+    // is that the two agree.
+    double max_abs = 0.0;
+    for (const Vec3& p : centers) {
+        const Vec3 d = mul(R, p - mid);
+        max_abs = std::max(max_abs, std::abs(d.x));
+        max_abs = std::max(max_abs, std::abs(d.y));
+        max_abs = std::max(max_abs, std::abs(d.z));
+    }
+    T.scale = max_abs > 1e-12 ? 1.0 / max_abs : 1.0;
+    T.R = R;
+    T.t = mul(R, mid) * -T.scale;
+    return T;
+}
+
+// The same, turned so that `up` is +Z. Identity when `up` is zero.
+inline Sim3 normalizingTransform(const Reconstruction& rec, const Vec3& up) {
+    const double un = up.norm();
+    if (!(un > 1e-12)) return Sim3{};
+    return normalizingTransform(rec, rotationUpToZ(up * (1.0 / un)));
+}
+
+// Orientation tags for models that did not come from this run's features --
+// `merge` and a resumed `map` read theirs off disk, which records no tag. One
+// image already carrying a turn stops it: the features are the authority.
+inline int fillExifOrientations(std::vector<Reconstruction>& models,
+                                const std::string& imagedir) {
+    if (imagedir.empty()) return 0;
+    for (const Reconstruction& m : models)
+        for (const auto& kv : m.images)
+            if (kv.second.exif_orientation != 1) return 0;
+    int read = 0;
+    for (Reconstruction& m : models)
+        for (auto& kv : m.images)
+            if (kv.second.registered) {
+                kv.second.exif_orientation =
+                    (uint8_t)exifOrientation(imagedir + "/" + kv.second.name);
+                read++;
+            }
+    return read;
+}
+
+// The same, with up taken from the cameras themselves.
+inline Sim3 uprightTransform(const Reconstruction& rec, bool use_exif = false) {
+    return normalizingTransform(rec, meanCameraUp(rec, use_exif));
+}
+
+// Apply it. Poses and 3D points are the only things in a Reconstruction with
+// world units in them: intrinsics are per-camera, 2D observations are pixels,
+// and a reprojection error is a pixel count -- all unchanged by a change of
+// world gauge, which is the whole reason this is safe to do at the end.
+inline void applySim3(Reconstruction& rec, const Sim3& T) {
+    for (auto& kv : rec.images)
+        if (kv.second.registered) kv.second.pose = transformPose(T, kv.second.pose);
+    for (auto& kv : rec.points3D) kv.second.xyz = transformPoint(T, kv.second.xyz);
+    transformRigs(rec.rigs, T.scale);
+}
+
+// Returns the transform that was applied, so the caller can report it (and so
+// a caller that needs to map something else into the new frame still can).
+inline Sim3 orientModel(Reconstruction& rec, bool use_exif = false) {
+    const Sim3 T = uprightTransform(rec, use_exif);
+    applySim3(rec, T);
+    return T;
+}
+
+}  // namespace sfm

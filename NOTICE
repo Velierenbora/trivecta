@@ -1,0 +1,23 @@
+Trivecta
+Copyright (C) 2026 Trivecta contributors
+
+This product includes software developed as "Spirula Studio"
+(https://github.com/harry7557558/spirula-studio), licensed under the
+GNU General Public License v3.0.
+
+Trivecta is a modified build of Spirula Studio. The modifications are limited
+to the user interface and branding:
+
+  * product name and window title changed to "Trivecta"
+  * a light (white) colour theme
+  * a larger base UI font size
+  * a "Welcome To The Trivecta" headline on the home screen
+  * a dedicated "Open 3D" button for the splat viewer
+
+The full corresponding source, including these modifications, is provided in
+the `trivecta/` directory of this repository and distributed under the
+GNU General Public License v3.0 (see `trivecta/LICENSE`).
+
+Bundled fonts:
+  * Source Sans (Adobe) - SIL Open Font License 1.1
+  * Noto Sans CJK subsets (Google/Adobe) - SIL Open Font License 1.1

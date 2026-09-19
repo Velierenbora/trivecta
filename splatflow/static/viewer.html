@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>3D Gaussian Viewer</title>
+<script type="importmap">
+{ "imports": { "three": "/static/vendor/three.module.js" } }
+</script>
+<style>
+  html, body { margin: 0; height: 100%; background: #0a0d13; color: #e6e9ef;
+    font-family: system-ui, "Segoe UI", Roboto, sans-serif; }
+  #bar { position: absolute; top: 0; left: 0; right: 0; height: 44px; display: flex;
+    gap: 14px; align-items: center; padding: 0 14px; border-bottom: 1px solid #1b2330;
+    font-size: 13px; z-index: 5; background: #0a0d13; }
+  #bar a { color: #8fb4ff; cursor: pointer; }
+  #view { position: absolute; inset: 44px 0 0 0; }
+  #note { position: absolute; bottom: 10px; left: 14px; color: #8b96a8; font-size: 12px; z-index: 5; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <strong>3D Gaussian</strong>
+  <a id="dl" download>indir (.ply)</a>
+  <span style="color:#8b96a8">Fare: döndür · tekerlek: yakınlaştır</span>
+</div>
+<div id="view"></div>
+<div id="note">Yükleniyor...</div>
+<script type="module">
+const q = new URLSearchParams(location.search);
+const ply = q.get("ply");
+const note = document.getElementById("note");
+const holder = document.getElementById("view");
+if (ply) document.getElementById("dl").href = ply;
+
+async function run() {
+  if (!ply) { note.textContent = "Kullanım: viewer.html?ply=<url>"; return; }
+  try {
+    const GS = await import("/static/vendor/gs3d.module.js");
+    const viewer = new GS.Viewer({
+      cameraUp: [0, -1, 0],
+      initialCameraPosition: [-1, -2, 3],
+      initialCameraLookAt: [0, 0, 0],
+      sharedMemoryForWorkers: false,
+    });
+    await viewer.addSplatScene(ply, { splatAlphaRemovalThreshold: 5, showLoadingUI: true });
+    viewer.start();
+    note.textContent = "Hazır. Fareyle gezin.";
+    return;
+  } catch (e) { console.warn("GS3D failed", e); }
+  note.textContent = "Splat görüntüleyici yüklenemedi, nokta bulutu gösteriliyor.";
+  try {
+    const THREE = await import("/static/vendor/three.module.js");
+    const { PLYLoader } = await import("/static/vendor/PLYLoader.js");
+    const { OrbitControls } = await import("/static/vendor/OrbitControls.js");
+    holder.innerHTML = "";
+    const scene = new THREE.Scene();
+    const cam = new THREE.PerspectiveCamera(55, holder.clientWidth / holder.clientHeight, 0.01, 100);
+    const rn = new THREE.WebGLRenderer({ antialias: true });
+    rn.setSize(holder.clientWidth, holder.clientHeight);
+    holder.appendChild(rn.domElement);
+    const ctl = new OrbitControls(cam, rn.domElement);
+    const g = await new Promise((res, rej) => new PLYLoader().load(ply, res, undefined, rej));
+    g.computeBoundingSphere();
+    const c = g.boundingSphere.center, r = g.boundingSphere.radius || 1;
+    const n = g.attributes.position.count, col = new Float32Array(n * 3), SH = 0.28209479177387814;
+    const f0 = g.attributes.f_dc_0, f1 = g.attributes.f_dc_1, f2 = g.attributes.f_dc_2;
+    if (f0 && f1 && f2) for (let i = 0; i < n; i++) {
+      col[i*3] = Math.min(1, Math.max(0, 0.5 + SH*f0.getX(i)));
+      col[i*3+1] = Math.min(1, Math.max(0, 0.5 + SH*f1.getX(i)));
+      col[i*3+2] = Math.min(1, Math.max(0, 0.5 + SH*f2.getX(i)));
+    }
+    g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    scene.add(new THREE.Points(g, new THREE.PointsMaterial({ size: r/260, vertexColors: true, sizeAttenuation: true, transparent: true, opacity: 0.95 })));
+    cam.position.set(c.x + r, c.y + r*0.6, c.z + r*1.4);
+    ctl.target.copy(c); ctl.update();
+    (function loop(){ requestAnimationFrame(loop); ctl.update(); rn.render(scene, cam); })();
+  } catch (e) { note.textContent = "Görüntüleyici yüklenemedi: " + e; }
+}
+run();
+</script>
+</body>
+</html>

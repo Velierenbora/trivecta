@@ -1,0 +1,56 @@
+# ---- secrets / credentials ----
+.env
+.env.*
+*.token
+*.key
+*.pem
+secrets/
+credentials.json
+
+# ---- python ----
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+*.egg-info/
+
+# ---- SplatFlow runtime ----
+splatflow/jobs/
+splatflow/outputs/
+splatflow/incoming/
+splatflow/srv.log
+splatflow/server.out.log
+splatflow/server.err.log
+splatflow/cloudflared*.log
+splatflow/TUNNEL_URL.txt
+
+# ---- captures / models / outputs ----
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.insv
+*.360
+*.ckpt
+*.safetensors
+*.onnx
+*.ply
+*.splat
+*.glb
+*.obj
+incoming/
+
+# ---- build artifacts ----
+build/
+build_*/
+*.obj
+*.o
+*.exe
+*.dll
+*.lib
+*.pdb
+
+# ---- editors / OS ----
+.vscode/
+.idea/
+Thumbs.db
