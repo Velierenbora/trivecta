@@ -1,5 +1,26 @@
 # SplatFlow — Video'dan 3D Gaussian Splat
 
+## Hızlı başlangıç (tak-çalıştır)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\kur.ps1     # bir kez: venv, ffmpeg, cloudflared, trivecta.exe
+powershell -ExecutionPolicy Bypass -File .\baslat.ps1  # sunucu + tünel, paylaşılacak linki yazar
+```
+
+- `kur.ps1`, `trivecta.exe`'yi sırayla `SPIRULA_EXE`, `C:\trivecta`, `bin\` ve `trivecta\build\` konumlarında arar. Bulamazsa GitHub Release'teki `trivecta-win64.zip` dosyasını indirir. Bu paket `scripts\build-trivecta.ps1` ile üretilir ve RTX 20/30/40/50 serisinin hepsinde yeniden derlemeden çalışır.
+- **Güvenlik:** Linkin sonunda `?k=<anahtar>` olmadan hiçbir sayfa açılmaz. Anahtar her `baslat.ps1` çalıştırmasında yenilenir. Herkes sadece kendi tarayıcısından yüklediği işleri görebilir. Sunucu yalnızca sonuç dosyalarını verir, yüklenen videoları asla vermez. Yükleme boyutu ve saatlik yükleme sayısı sınırlıdır.
+- Ayarlar (ortam değişkeni):
+
+  | Değişken | Varsayılan | Anlamı |
+  |---|---|---|
+  | `SPLATFLOW_MAX_MB` | 3072 | Tek yüklemede izin verilen en büyük dosya (MB) |
+  | `SPLATFLOW_UPLOADS_PER_HOUR` | 10 | Bir kullanıcının saatte yapabileceği yükleme sayısı |
+  | `SPLATFLOW_ACTIVE_PER_USER` | 2 | Bir kullanıcının aynı anda sürebilecek iş sayısı |
+  | `SPLATFLOW_MAX_QUEUE` | 8 | Kuyrukta bekleyebilecek toplam iş sayısı |
+  | `SPLATFLOW_ALLOW_MANUAL` | 1 | "PC'ye kaydet" kartını göster (1) ya da gizle (0) |
+
+  Not: trycloudflare ücretsiz tünelinde istek başına yaklaşık 100 MB yükleme sınırı vardır.
+
 Video yükle (tarayıcıdan, trycloudflare tüneli üzerinden) → otomatik olarak kamera
 pozu çıkarılır (SfM) → 3D Gaussians eğitilir → sonuç tarayıcıda gezilir.
 

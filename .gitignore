@@ -54,3 +54,8 @@ build_*/
 .vscode/
 .idea/
 Thumbs.db
+
+# ---- SplatFlow access / pids ----
+splatflow/.splatflow.pids
+/bin/
+/dist/
