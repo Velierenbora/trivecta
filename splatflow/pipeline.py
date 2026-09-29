@@ -16,20 +16,44 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-SPIRULA = Path(
-    os.environ.get(
-        "SPIRULA_EXE",
+REPO = ROOT.parent
+
+
+def _first_existing(*cands) -> Path | None:
+    for c in cands:
+        if c and Path(c).is_file():
+            return Path(c)
+    return None
+
+
+def _find_spirula() -> Path:
+    """env SPIRULA_EXE > C:\\trivecta > repo bin/ (kur.ps1) > local build."""
+    if os.environ.get("SPIRULA_EXE"):
+        return Path(os.environ["SPIRULA_EXE"])
+    return _first_existing(
         r"C:\trivecta\trivecta.exe",
-    )
-)
-FFMPEG = Path(
-    os.environ.get(
-        "FFMPEG_EXE",
-        r"C:\Users\Administrator\AppData\Local\Microsoft\WinGet\Packages"
-        r"\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe"
-        r"\ffmpeg-9.0.1-full_build\bin\ffmpeg.exe",
-    )
-)
+        REPO / "bin" / "trivecta.exe",
+        REPO / "trivecta" / "build" / "trivecta.exe",
+    ) or Path(r"C:\trivecta\trivecta.exe")
+
+
+def _find_ffmpeg() -> Path:
+    """env FFMPEG_EXE > PATH > any WinGet ffmpeg install > plain 'ffmpeg'."""
+    if os.environ.get("FFMPEG_EXE"):
+        return Path(os.environ["FFMPEG_EXE"])
+    hit = shutil.which("ffmpeg")
+    if hit:
+        return Path(hit)
+    local = Path(os.environ.get("LOCALAPPDATA", str(Path.home())))
+    winget = local / "Microsoft" / "WinGet"
+    found = _first_existing(winget / "Links" / "ffmpeg.exe",
+                            *sorted((winget / "Packages").glob("*FFmpeg*/*/bin/ffmpeg.exe"),
+                                    reverse=True))
+    return found or Path("ffmpeg")
+
+
+SPIRULA = _find_spirula()
+FFMPEG = _find_ffmpeg()
 JOBS = ROOT / "jobs"
 
 
